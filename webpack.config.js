@@ -4,19 +4,23 @@ var HtmlWebpackPlugin = require("html-webpack-plugin");
 
 module.exports = {
   resolve: {
-    modules: ["node_modules", path.resolve(__dirname, "src")],
-    extensions: [".ts", ".js", ".json", ".css"]
+    modules: [
+      "node_modules",
+      path.resolve(__dirname, "src"),
+      path.resolve(__dirname, "assets"),
+    ],
+    extensions: [".ts", ".js", ".json", ".css", ".glsl"],
   },
 
   entry: {
-    app: "./src/game.ts"
+    app: "./src/game.ts",
   },
 
-  plugins: [new HtmlWebpackPlugin({ title: "Game title" })],
+  plugins: [new HtmlWebpackPlugin({ title: "Ayyteegee" })],
 
   output: {
     path: path.resolve(__dirname, "dist"),
-    filename: "bundle.js"
+    filename: "bundle.js",
   },
 
   devtool: "source-map",
@@ -25,9 +29,9 @@ module.exports = {
     rules: [
       {
         test: /\.ts$/,
-        include: [path.resolve(__dirname, "app")],
-        loader: "ts-loader"
-      }
-    ]
-  }
+        include: [path.resolve(__dirname, "src")],
+        loader: "ts-loader",
+      },
+    ],
+  },
 };
