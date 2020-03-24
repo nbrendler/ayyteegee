@@ -17,6 +17,7 @@
     "build": "yarn run assets && webpack -p"
   },
   "dependencies": {
+    "easystarjs": "^0.4.3",
     "phaser": "^3.22.0"
   },
   "devDependencies": {
