@@ -1,43 +1,40 @@
 import "phaser";
 import { js as EasyStar } from "easystarjs";
 
+import Crew from "./crew";
+import Alien from "./alien";
 import Actor from "./actor";
 import UI from "./ui";
-import { GameEvent } from "./types";
-
-type PlayerTurn = { tag: "player"; crewIndex: number };
-type AlienTurn = { tag: "alien"; alienIndex: number };
-type GameState = PlayerTurn | AlienTurn;
-
-type Info = { tag: "info" };
-type SelectTile = { tag: "select"; abilityIndex: number };
-type CursorState = Info | SelectTile;
+import { GameState, GameEvent } from "./types";
+import CONFIG from "./config";
 
 const shouldUpdate = (timeA, timeB, timeout) => timeB - timeA >= timeout;
 
 export class GameScene extends Phaser.Scene {
   gameState: GameState;
-  cursorState: CursorState;
   finder: EasyStar;
   layer: Phaser.Tilemaps.DynamicTilemapLayer;
-  player: Actor;
-  aliens: Actor[];
+  crew: Crew[];
+  aliens: Alien[];
   currentActor: Actor;
   lastChecked: number;
   controls: Phaser.Cameras.Controls.SmoothedKeyControl;
   map: Phaser.Tilemaps.Tilemap;
-  selectedTile: [number, number] | null;
+  selectedTile: Phaser.Tilemaps.Tile;
+  stateCache: { [key: string]: GameState };
   tileTween: Phaser.Tweens.Tween;
+  transitions: { [key: string]: (object) => GameState };
 
   constructor() {
     super("game");
     this.layer = null;
-    this.selectedTile = null;
     this.finder = new EasyStar();
     this.aliens = [];
-    this.gameState = { tag: "player", crewIndex: 0 };
-    this.cursorState = { tag: "info" };
+    this.crew = [];
+    this.gameState = { key: "FOCUS_CREW", index: 0 };
     this.lastChecked = 0;
+    this.transitions = {};
+    this.stateCache = {};
   }
 
   preload() {
@@ -84,10 +81,11 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.createTilemap();
 
-    this.player = new Actor(this, this.map, 50, 50, 148);
-    this.currentActor = this.player;
+    this.crew.push(new Crew(this, this.map, 50, 50, 148, "captain"));
+    this.crew.push(new Crew(this, this.map, 52, 50, 146, "yeoman"));
+    this.focusActor(this.crew[0]);
 
-    this.aliens.push(new Actor(this, this.map, 52, 52, 195));
+    this.aliens.push(new Alien(this, this.map, 52, 52, 195, "adultAlien"));
     this.cameras.main.setBounds(
       0,
       0,
@@ -119,6 +117,95 @@ export class GameScene extends Phaser.Scene {
     this.controls = new Phaser.Cameras.Controls.SmoothedKeyControl(
       controlConfig
     );
+
+    this.events.on(GameEvent.FocusActor, () => {
+      switch (this.gameState.key) {
+        case "FOCUS_CREW":
+          this.focusActor(this.crew[this.gameState.index]);
+          break;
+      }
+    });
+
+    this.events.on(GameEvent.AbilityClick, (ability) => {
+      this.stateTransition("SELECT_ABILITY", { ability });
+    });
+
+    this.events.on(GameEvent.Cancel, () => {
+      switch (this.gameState.key) {
+        case "SELECT_ABILITY": {
+          this.stateTransition("FOCUS_CREW");
+        }
+      }
+    });
+
+    this.events.on(GameEvent.EndStateTransition, ({ state }) => {
+      if (state.key === "FOCUS_ALIEN") {
+        this.stateTransition("FOCUS_CREW");
+      }
+    });
+
+    this.input.keyboard.on("keydown-ESC", () => {
+      this.events.emit(GameEvent.Cancel);
+    });
+
+    this.defineTransition("FOCUS_CREW", "SELECT_ABILITY", ({ ability }) => {
+      if (ability.targetable) {
+        return { key: "SELECT_ABILITY", ability };
+      }
+      this.useAbility(ability, null);
+      return { key: "USE_ABILITY" };
+    });
+
+    this.defineTransition("SELECT_ABILITY", "USE_ABILITY", ({ target }) => {
+      if (this.gameState.key === "SELECT_ABILITY") {
+        this.useAbility(this.gameState.ability, target);
+      }
+      return { key: "USE_ABILITY", target };
+    });
+    this.defineTransition("SELECT_ABILITY", "FOCUS_CREW", () => {
+      return this.stateCache.FOCUS_CREW;
+    });
+    this.defineTransition("USE_ABILITY", "FOCUS_CREW", (index) => {
+      const state = this.stateCache.FOCUS_CREW;
+      if (state.key === "FOCUS_CREW") state.index = index;
+      this.focusActor(this.crew[index]);
+      return state;
+    });
+    this.defineTransition("USE_ABILITY", "FOCUS_ALIEN", () => {
+      this.runAlienTurn();
+      return { key: "FOCUS_ALIEN" };
+    });
+    this.defineTransition("FOCUS_ALIEN", "FOCUS_CREW", () => {
+      this.focusActor(this.crew[0]);
+      return { key: "FOCUS_CREW", index: 0 };
+    });
+  }
+
+  runAlienTurn() {
+    this.aliens.forEach((alien, idx) => {
+      this.focusActor(alien);
+      const mergedConfig = Object.assign({}, CONFIG.alien, CONFIG[alien.name]);
+      const [ability, target] = mergedConfig.behavior(this, alien);
+      ability.use(this);
+    });
+  }
+
+  async useAbility(ability, target) {
+    const result = await ability.use(this, target);
+    const state = this.stateCache.FOCUS_CREW;
+    if (state.key === "FOCUS_CREW") {
+      const index = state.index;
+      if (result && index === this.crew.length - 1) {
+        // if it's the last crew member, go to the alien turn
+        return this.stateTransition("FOCUS_ALIEN");
+      } else if (result) {
+        // go to the next crew members turn
+        return this.stateTransition("FOCUS_CREW", index + 1);
+      }
+
+      // the ability failed, so go back to crew focus state
+      return this.stateTransition("FOCUS_CREW", index);
+    }
   }
 
   update(time, delta) {
@@ -137,42 +224,33 @@ export class GameScene extends Phaser.Scene {
     const { x: worldX, y: worldY } = this.cameras.main.getWorldPoint(x, y);
 
     const tile = this.map.getTileAtWorldXY(worldX, worldY);
-    const { x: toX, y: toY } = tile;
 
-    switch (this.cursorState.tag) {
-      case "select":
-        // Check if there's an alien on the tile
-        const foundAlien = this.aliens.find((a) => {
-          return a.tile.x === toX && a.tile.y === toY;
-        });
+    switch (this.gameState.key) {
+      case "FOCUS_CREW":
+        // focus crew
+        break;
+      case "SELECT_ABILITY":
+        this.stateTransition("USE_ABILITY", { target: tile });
+    }
+  }
 
-        if (foundAlien) {
-          this.player.shoot(foundAlien);
-        }
+  defineTransition(state, nextState, callback) {
+    this.transitions[`${state}-${nextState}`] = callback;
+  }
 
-        this.finder.stopAvoidingAllAdditionalPoints();
-
-        // Mark tiles with aliens as impassable
-        this.aliens.forEach(({ tile: t }) => {
-          this.finder.avoidAdditionalPoint(t.x, t.y);
-        });
-
-        this.finder.findPath(
-          this.player.tile.x,
-          this.player.tile.y,
-          toX,
-          toY,
-          (path) => {
-            if (path === null) {
-              console.warn("no path");
-            } else {
-              this.player.moveOnPath(path, this.map);
-            }
-          }
-        );
-        this.finder.calculate();
-      case "info":
-      // nothing on click
+  stateTransition(nextState, data = {}) {
+    const transition = this.transitions[`${this.gameState.key}-${nextState}`];
+    if (transition) {
+      this.stateCache[this.gameState.key] = this.gameState;
+      this.events.emit(GameEvent.BeginStateTransition, {
+        state: this.gameState,
+        nextState,
+        data,
+      });
+      this.gameState = transition(data);
+      this.events.emit(GameEvent.EndStateTransition, { state: this.gameState });
+    } else {
+      console.error("Invalid state transition", this.gameState.key, nextState);
     }
   }
 
@@ -189,19 +267,26 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      if (this.selectedTile === null) {
-        this.selectedTile = [tile.x, tile.y];
-        return;
+      if (this.selectedTile) {
+        const { x: oldX, y: oldY } = this.selectedTile;
+
+        if (tile.x !== oldX || tile.y !== oldY) {
+          const oldTile = this.map.getTileAt(oldX, oldY);
+          oldTile.setAlpha(1);
+        }
+        switch (this.gameState.key) {
+          case "FOCUS_CREW":
+            if (tile.x !== oldX || tile.y !== oldY) {
+              tile.setAlpha(0.5);
+            }
+            break;
+
+          case "SELECT_ABILITY":
+            break;
+        }
       }
 
-      const [oldX, oldY] = this.selectedTile;
-
-      if (tile.x !== oldX || tile.y !== oldY) {
-        const oldTile = this.map.getTileAt(oldX, oldY);
-        oldTile.setAlpha(1);
-        tile.setAlpha(0.5);
-        this.selectedTile = [tile.x, tile.y];
-      }
+      this.selectedTile = tile;
     }
   }
 }
@@ -220,4 +305,4 @@ const config = {
   },
 };
 
-const game = new Phaser.Game(config);
+new Phaser.Game(config);

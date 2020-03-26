@@ -1,13 +1,26 @@
 import "phaser";
 
+import { Ability } from "./types";
+import CONFIG from "./config";
+
 class Actor extends Phaser.GameObjects.Group {
   protected map: Phaser.Tilemaps.Tilemap;
   protected health: number;
   sprite: Phaser.GameObjects.Sprite;
+  name: string;
+  actorType: string;
+  abilities: { [key: string]: Ability };
 
-  constructor(scene, map, tileX, tileY, frame) {
+  constructor(scene, map, tileX, tileY, frame, name, actorType) {
     super(scene);
     this.map = map;
+    this.name = name;
+    this.actorType = actorType;
+    this.abilities = Object.assign(
+      {},
+      CONFIG[actorType].abilities,
+      CONFIG[name].abilities
+    );
 
     const tile = this.map.getTileAt(tileX, tileY);
 
@@ -26,7 +39,7 @@ class Actor extends Phaser.GameObjects.Group {
   hit(damage: number) {
     this.health -= damage;
     if (this.health <= 0) {
-      console.log("actor dead", this);
+      console.log("I died - ", this.name);
       this.destroy(true);
     }
   }
@@ -44,10 +57,17 @@ class Actor extends Phaser.GameObjects.Group {
       });
     }
 
-    this.scene.tweens.timeline({ tweens });
+    return new Promise((resolve, reject) => {
+      this.scene.tweens.timeline({
+        tweens,
+        onComplete: () => {
+          resolve(true);
+        },
+      });
+    });
   }
 
-  shoot<Target extends Actor>(target: Target) {
+  async shoot<Target extends Actor>(target: Target) {
     const laser = this.scene.add.sprite(this.x, this.y, "sprites", 134);
     this.scene.physics.add.existing(laser, false);
 
@@ -61,11 +81,18 @@ class Actor extends Phaser.GameObjects.Group {
       laser.body.setVelocity(direction.x, direction.y);
     }
 
-    this.scene.physics.add.overlap(laser, target.sprite, () => {
-      laser.destroy();
-      target.hit(50);
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        // guard again weird things happening
+        laser.destroy();
+        resolve(false);
+      }, 3000);
+      this.scene.physics.add.overlap(laser, target.sprite, () => {
+        laser.destroy();
+        target.hit(50);
+        resolve(true);
+      });
     });
-    return laser;
   }
 
   get x(): number {
