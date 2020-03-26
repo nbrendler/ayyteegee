@@ -18,6 +18,7 @@
   <tile id="2">
    <properties>
     <property name="collide" type="bool" value="true"/>
+    <property name="description" value="Looks like a wall."/>
    </properties>
   </tile>
   <tile id="3">
@@ -29,6 +30,7 @@
    <properties>
     <property name="collide" type="bool" value="false"/>
     <property name="cost" type="float" value="1"/>
+    <property name="description" value="It's the floor."/>
    </properties>
   </tile>
   <tile id="5">

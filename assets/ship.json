@@ -66,6 +66,11 @@
                          "name":"collide",
                          "type":"bool",
                          "value":true
+                        }, 
+                        {
+                         "name":"description",
+                         "type":"string",
+                         "value":"Looks like a wall."
                         }]
                 }, 
                 {
@@ -89,6 +94,11 @@
                          "name":"cost",
                          "type":"float",
                          "value":1
+                        }, 
+                        {
+                         "name":"description",
+                         "type":"string",
+                         "value":"It's the floor."
                         }]
                 }, 
                 {
