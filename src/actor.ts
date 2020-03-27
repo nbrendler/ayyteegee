@@ -1,30 +1,42 @@
 import "phaser";
 
-import { Ability } from "./types";
+import { GameEvent, Ability } from "./types";
 import CONFIG from "./config";
+import { GameScene } from "./game";
+import Healthbar from "./healthbar";
+
+let actorId = 0;
 
 class Actor extends Phaser.GameObjects.Group {
   protected map: Phaser.Tilemaps.Tilemap;
   protected health: number;
+  id: number;
   sprite: Phaser.GameObjects.Sprite;
+  healthbar: Phaser.GameObjects.Graphics;
   name: string;
+  displayName: string;
   actorType: string;
   abilities: { [key: string]: Ability };
+  stats: { [key: string]: number };
 
   constructor(scene, map, tileX, tileY, frame, name, actorType) {
     super(scene);
     this.map = map;
     this.name = name;
+    this.id = actorId;
+    actorId += 1;
     this.actorType = actorType;
-    this.abilities = Object.assign(
-      {},
-      CONFIG[actorType].abilities,
-      CONFIG[name].abilities
-    );
+    this.abilities = {};
+
+    CONFIG[actorType][name].abilities.forEach((abilityKey) => {
+      this.abilities[abilityKey] = CONFIG.abilities[abilityKey];
+    });
+    this.stats = CONFIG[actorType][name].stats;
+    this.stats.maxHealth = this.stats.health;
+    this.displayName = CONFIG[actorType][name].display;
 
     const tile = this.map.getTileAt(tileX, tileY);
 
-    this.type = "actor";
     this.sprite = this.scene.add.sprite(
       tile.getCenterX(),
       tile.getCenterY(),
@@ -33,22 +45,23 @@ class Actor extends Phaser.GameObjects.Group {
     );
     scene.physics.add.existing(this.sprite, false);
     this.add(this.sprite);
-    this.health = 100;
+
+    // this.add(new Healthbar(this.scene, this));
   }
 
   hit(damage: number) {
-    this.health -= damage;
-    if (this.health <= 0) {
-      console.log("I died - ", this.name);
+    this.stats.health -= damage;
+    if (this.stats.health <= 0) {
+      this.scene.events.emit(GameEvent.ActorDeath, this);
       this.destroy(true);
     }
   }
 
-  moveOnPath(path, tilemap) {
+  moveOnPath(path) {
     const tweens = [];
-    for (let i = 0; i < path.length - 1; i++) {
+    for (let i = 0; i < Math.min(path.length - 1, this.stats.movement); i++) {
       const { x, y } = path[i + 1];
-      const targetTile = tilemap.getTileAt(x, y);
+      const targetTile = this.map.getTileAt(x, y);
 
       tweens.push({
         targets: this.sprite,
@@ -67,17 +80,44 @@ class Actor extends Phaser.GameObjects.Group {
     });
   }
 
-  async shoot<Target extends Actor>(target: Target) {
-    const laser = this.scene.add.sprite(this.x, this.y, "sprites", 134);
+  computeDistance(actors: Actor[]) {
+    return Promise.all(
+      actors.map((a) => {
+        return new Promise((resolve, reject) => {
+          if (!(this.scene instanceof GameScene)) {
+            return;
+          }
+          this.scene.finder.stopAvoidingAllAdditionalPoints();
+          this.scene.finder.findPath(
+            this.tile.x,
+            this.tile.y,
+            a.tile.x,
+            a.tile.y,
+            (path) => {
+              resolve({ actor: a, path });
+            }
+          );
+          this.scene.finder.calculate();
+        });
+      })
+    );
+  }
+
+  shoot<Target extends Actor>(target: Target) {
+    const laser = this.scene.add.sprite(this.x, this.y, "sprites", 8);
     this.scene.physics.add.existing(laser, false);
+
+    const angle = Phaser.Math.Angle.BetweenPoints(this, target);
 
     const from = this.sprite.getCenter();
     const to = target.sprite.getCenter();
 
     const direction = to.subtract(from).normalize();
-    direction.scale(20);
+    direction.scale(40);
 
     if (laser.body instanceof Phaser.Physics.Arcade.Body) {
+      laser.angle = angle;
+      laser.body.angle = angle;
       laser.body.setVelocity(direction.x, direction.y);
     }
 
@@ -89,7 +129,7 @@ class Actor extends Phaser.GameObjects.Group {
       }, 3000);
       this.scene.physics.add.overlap(laser, target.sprite, () => {
         laser.destroy();
-        target.hit(50);
+        target.hit(this.stats.damage);
         resolve(true);
       });
     });

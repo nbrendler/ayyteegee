@@ -85,7 +85,8 @@ export class GameScene extends Phaser.Scene {
     this.crew.push(new Crew(this, this.map, 52, 50, 146, "yeoman"));
     this.focusActor(this.crew[0]);
 
-    this.aliens.push(new Alien(this, this.map, 52, 52, 195, "adultAlien"));
+    this.aliens.push(new Alien(this, this.map, 40, 42, 195, "adult"));
+    this.aliens.push(new Alien(this, this.map, 40, 52, 195, "adult"));
     this.cameras.main.setBounds(
       0,
       0,
@@ -118,14 +119,6 @@ export class GameScene extends Phaser.Scene {
       controlConfig
     );
 
-    this.events.on(GameEvent.FocusActor, () => {
-      switch (this.gameState.key) {
-        case "FOCUS_CREW":
-          this.focusActor(this.crew[this.gameState.index]);
-          break;
-      }
-    });
-
     this.events.on(GameEvent.AbilityClick, (ability) => {
       this.stateTransition("SELECT_ABILITY", { ability });
     });
@@ -138,16 +131,37 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.events.on(GameEvent.EndStateTransition, ({ state }) => {
-      if (state.key === "FOCUS_ALIEN") {
-        this.stateTransition("FOCUS_CREW");
+    this.events.on(GameEvent.ActorSpawn, (target) => {
+      this.aliens.push(
+        new Alien(this, this.map, target.x, target.y, 231, "egg")
+      );
+    });
+
+    this.events.on(GameEvent.ActorDeath, (actor) => {
+      if (actor.actorType === "alien") {
+        const idx = this.aliens.findIndex((a) => a.id === actor.id);
+        this.aliens.splice(idx, 1);
+      } else if (actor.actorType === "crew") {
+        const idx = this.crew.findIndex((a) => a.id === actor.id);
+        this.crew.splice(idx, 1);
       }
+    });
+
+    this.events.on(GameEvent.Win, () => {
+      this.stateTransition("GAME_OVER");
+    });
+
+    this.events.on(GameEvent.Lose, () => {
+      this.stateTransition("GAME_OVER");
     });
 
     this.input.keyboard.on("keydown-ESC", () => {
       this.events.emit(GameEvent.Cancel);
     });
 
+    this.defineTransition("USE_ABILITY", "GAME_OVER", () => {
+      return { key: "GAME_OVER" };
+    });
     this.defineTransition("FOCUS_CREW", "SELECT_ABILITY", ({ ability }) => {
       if (ability.targetable) {
         return { key: "SELECT_ABILITY", ability };
@@ -172,26 +186,65 @@ export class GameScene extends Phaser.Scene {
       return state;
     });
     this.defineTransition("USE_ABILITY", "FOCUS_ALIEN", () => {
-      this.runAlienTurn();
+      this.runAlienTurn(0);
       return { key: "FOCUS_ALIEN" };
     });
-    this.defineTransition("FOCUS_ALIEN", "FOCUS_CREW", () => {
+    this.defineTransition("FOCUS_ALIEN", "ALIEN_GROWTH", () => {
+      this.runAlienGrowth();
+      return { key: "ALIEN_GROWTH" };
+    });
+    this.defineTransition("ALIEN_GROWTH", "FOCUS_CREW", () => {
       this.focusActor(this.crew[0]);
       return { key: "FOCUS_CREW", index: 0 };
     });
   }
 
-  runAlienTurn() {
-    this.aliens.forEach((alien, idx) => {
-      this.focusActor(alien);
-      const mergedConfig = Object.assign({}, CONFIG.alien, CONFIG[alien.name]);
-      const [ability, target] = mergedConfig.behavior(this, alien);
-      ability.use(this);
-    });
+  async runAlienGrowth() {
+    for (const alien of this.aliens) {
+      if (alien.justBorn) {
+        alien.justBorn = false;
+        continue;
+      }
+      const result = await alien.abilities.grow.use(this, alien);
+      if (result) {
+        this.events.emit(
+          GameEvent.Log,
+          alien.abilities.grow.message(alien, null)
+        );
+      }
+    }
+    return this.stateTransition("FOCUS_CREW");
+  }
+
+  async runAlienTurn(index) {
+    const alien = this.aliens[index];
+    this.focusActor(alien);
+    const [ability, target] = await alien.behavior(this, alien);
+    if (ability.message) {
+      this.events.emit(
+        GameEvent.Log,
+        ability.message(this.currentActor, target)
+      );
+    }
+
+    const result = await ability.use(this, target);
+
+    if (index === this.aliens.length - 1) {
+      // if it's the last alien, time to grow
+      return this.stateTransition("ALIEN_GROWTH");
+    }
+
+    return this.runAlienTurn(index + 1);
   }
 
   async useAbility(ability, target) {
     const result = await ability.use(this, target);
+    if (ability.message) {
+      this.events.emit(
+        GameEvent.Log,
+        ability.message(this.currentActor, target)
+      );
+    }
     const state = this.stateCache.FOCUS_CREW;
     if (state.key === "FOCUS_CREW") {
       const index = state.index;
@@ -212,6 +265,18 @@ export class GameScene extends Phaser.Scene {
     this.updateSelectedTile();
 
     this.controls.update(delta);
+
+    if (!(this.gameState.key === "GAME_OVER")) {
+      this.checkGameEnd();
+    }
+  }
+
+  checkGameEnd() {
+    if (this.aliens.length === 0) {
+      this.events.emit(GameEvent.Win);
+    } else if (this.crew.length === 0) {
+      this.events.emit(GameEvent.Lose);
+    }
   }
 
   focusActor(actor) {
@@ -299,9 +364,6 @@ const config = {
   scene: [GameScene, UI],
   physics: {
     default: "arcade",
-    arcade: {
-      debug: true,
-    },
   },
 };
 
