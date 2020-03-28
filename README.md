@@ -28,7 +28,7 @@ little more design and polish, so I might come back to it later.
 
 I did some annotation of the source [here](./src/game.ts) or use my other tool
 (Annotato) to
-[view](https://annotato.nikbrendler.com/github.com/nbrendler/ayyteegee/src/game.ts)!
+[view](https://annotato.nikbrendler.com/github.com/nbrendler/ayyteegee/blob/HEAD/src/game.ts)!
 
 ## Development
 
@@ -50,7 +50,7 @@ npm run serve
 
 ## License/Attribution
 
-* [Code (MIT)](https://github.com/nbrendler/ayyteegee/master/blob/LICENSE) - this game code and webpack config.
-* [Template (MIT)](https://github.com/nbrendler/ayyteegee/master/blob/LICENSE.template.md) - original license of the phaser template.
+* [Code (MIT)](https://github.com/nbrendler/ayyteegee/blob/master/LICENSE) - this game code and webpack config.
+* [Template (MIT)](https://github.com/nbrendler/ayyteegee/blob/master/LICENSE.template.md) - original license of the phaser template.
 * [Art](https://scut.itch.io/7drl-tileset-2018) by itch.io user scut with some
     edits by me.

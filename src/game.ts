@@ -1,3 +1,4 @@
+// # game.ts
 import "phaser";
 import { js as EasyStar } from "easystarjs";
 
@@ -10,8 +11,8 @@ import CONFIG from "./config";
 
 const shouldUpdate = (timeA, timeB, timeout) => timeB - timeA >= timeout;
 
-// First of two scenes used by the game (the other is for UI)
-// This has all of the game logic and state
+// First of two scenes used by the game (the other is for UI);
+// This has all of the game logic and state;
 export class GameScene extends Phaser.Scene {
   // State object that is used primarily by the pseudo state machine
   // implemented below. I was trying to create a nice experience by using a

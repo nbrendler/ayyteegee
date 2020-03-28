@@ -9,11 +9,29 @@ body {
   margin: 0;
   padding: 0;
   display: flex;
+  color: #fff;
+
+}
+
+.bg-image {
+  position: absolute;
+  background-image: url('./assets/screenshot.png');
+  filter: blur(8px);
+  transform: rotate(15deg) scale(2);
+  z-index: -100;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 #game {
   flex: 0 0 auto;
   display: flex;
+  background-color: transparent;
 }
 
 canvas {
@@ -23,6 +41,7 @@ canvas {
 body > div {
   padding: 1rem;
   flex: 1 0 50%;
+  background-color: rgba(22, 25, 37, 0.8);
 }
 
 @media screen and (max-width: 990px) {
@@ -37,6 +56,7 @@ body > div {
 </style>
   </head>
   <body>
+    <div class="bg-image"></div>
     <div id="game"></div>
     <div> <%= require('html-loader!markdown-loader!../README.md') %></div>
   </body>
