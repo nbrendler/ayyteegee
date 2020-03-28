@@ -1,3 +1,8 @@
+// # healthbar.ts
+// I couldn't get this working in time so it's unused. It shows a bar above
+// each actor's head representing their health, but for some reason the update
+// method wasn't being called by the parent group so I punted on it.
+
 import "phaser";
 
 import Actor from "./actor";
@@ -20,7 +25,6 @@ class Healthbar extends Phaser.GameObjects.GameObject {
   }
 
   update() {
-    console.log("update me");
     const healthPct = this.actor.stats.health / this.actor.stats.maxHealth;
     const width = healthPct * this.actor.sprite.width;
     this.healthbar.clear();

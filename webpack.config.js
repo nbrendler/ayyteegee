@@ -16,7 +16,14 @@ module.exports = {
     app: "./src/game.ts",
   },
 
-  plugins: [new HtmlWebpackPlugin({ title: "Ayyteegee" })],
+  plugins: [
+    new HtmlWebpackPlugin({
+      title: "Ayyteegee",
+      filename: "index.html",
+      template: "src/index.ejs",
+      hash: true,
+    }),
+  ],
 
   output: {
     path: path.resolve(__dirname, "dist"),

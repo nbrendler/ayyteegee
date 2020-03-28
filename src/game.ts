@@ -10,19 +10,48 @@ import CONFIG from "./config";
 
 const shouldUpdate = (timeA, timeB, timeout) => timeB - timeA >= timeout;
 
+// First of two scenes used by the game (the other is for UI)
+// This has all of the game logic and state
 export class GameScene extends Phaser.Scene {
+  // State object that is used primarily by the pseudo state machine
+  // implemented below. I was trying to create a nice experience by using a
+  // discriminated union type but in retrospect I think an enum might have been
+  // better -- I don't really store much state apart from the keys.
   gameState: GameState;
+
+  // Pathfinding library object. Seems good enough for this game but I might
+  // like to find something in the future that do more with tile maps.
   finder: EasyStar;
+
+  // The main layer of the Tilemap. I didn't really understand how to benefit
+  // from multiple layers going in, so I just stuck with one for this game.
   layer: Phaser.Tilemaps.DynamicTilemapLayer;
+
+  // Array of Crew actors
   crew: Crew[];
+
+  // Array of Alien actors
   aliens: Alien[];
+
+  // Reference to the focused actor.
   currentActor: Actor;
+
+  // bookkeeping timestamp used to debounce some of the UI updates
   lastChecked: number;
+
+  // Controls for moving the camera
   controls: Phaser.Cameras.Controls.SmoothedKeyControl;
+
   map: Phaser.Tilemaps.Tilemap;
+
+  // The tile at which the mouse is currently pointing
   selectedTile: Phaser.Tilemaps.Tile;
+
+  // Simple cache for keeping track of past states in case we need to go back
+  // (like cancelling an ability). A stack is probably better than this.
   stateCache: { [key: string]: GameState };
-  tileTween: Phaser.Tweens.Tween;
+
+  // map of defined state transitions used by the state machine.
   transitions: { [key: string]: (object) => GameState };
 
   constructor() {
@@ -52,6 +81,8 @@ export class GameScene extends Phaser.Scene {
     this.layer = this.map.createDynamicLayer("Base", tiles, 0, 0);
     this.map.setLayer("Base");
 
+    // For the pathfinding library to work, we have to construct a 2d grid of
+    // tiles from the map.
     const grid = [];
     for (let y = 0; y < this.map.height; y++) {
       const col = [];
@@ -65,15 +96,16 @@ export class GameScene extends Phaser.Scene {
     const tileset = this.map.tilesets[0];
     const properties = tileset.tileProperties;
 
+    // These tiles are acceptable in the sense that they may be considered when
+    // calculating paths, (e.g. not walls or obstacles);
+    //
+    // Adapted from the solution presented [here](https://www.dynetisgames.com/2018/03/06/pathfinding-easystar-phaser-3/)
     const acceptableTiles = [];
     for (let i = tileset.firstgid - 1; i < tiles.total; i++) {
-      // firstgid and total are fields from Tiled that indicate the range of IDs that the tiles can take in that tileset
-      if (!properties.hasOwnProperty(i)) {
+      if (!properties[i]) {
         continue;
       }
       if (!properties[i].collide) acceptableTiles.push(i + 1);
-      if (properties[i].cost)
-        this.finder.setTileCost(i + 1, properties[i].cost); // If there is a cost attached to the tile, let's register it
     }
     this.finder.setAcceptableTiles(acceptableTiles);
   }
@@ -81,12 +113,18 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.createTilemap();
 
+    // create the crew and aliens
+    // In the future this could be pushed to a level-based config
     this.crew.push(new Crew(this, this.map, 50, 50, 148, "captain"));
     this.crew.push(new Crew(this, this.map, 52, 50, 146, "yeoman"));
     this.focusActor(this.crew[0]);
 
     this.aliens.push(new Alien(this, this.map, 40, 42, 195, "adult"));
     this.aliens.push(new Alien(this, this.map, 40, 52, 195, "adult"));
+
+    // Set up the camera. Bounds should be at the edges of the tile map and it
+    // starts centered.
+    // It might be better to just center on the focused actor?
     this.cameras.main.setBounds(
       0,
       0,
@@ -99,9 +137,7 @@ export class GameScene extends Phaser.Scene {
     );
     this.cameras.main.zoom = 5;
 
-    this.input.mouse.enabled = true;
-    this.input.on("pointerdown", this.onClick.bind(this));
-
+    // control the camera using the arrow keys
     const { up, down, left, right } = this.input.keyboard.createCursorKeys();
 
     const controlConfig = {
@@ -119,6 +155,22 @@ export class GameScene extends Phaser.Scene {
       controlConfig
     );
 
+    // Set up pointer events
+    this.input.mouse.enabled = true;
+    this.input.on("pointerdown", this.onClick.bind(this));
+
+    // ## Event Binding
+    // This is where stuff starts to get ugly, imo. I started out using events
+    // since it seemed a natural way to decouple some of the moving pieces
+    // here. About halfway through, the events were getting messy and I decided
+    // to write more of a state machine to control the core logic of switching
+    // turns and handling abilities -- which worked great! But then there's still these events here.
+    //
+    // I decided to compromise by using events to communicate primarily with
+    // the other scene (UI). Since that scene can also trigger state
+    // transitions (by clicking buttons), the two are still intermingled a bit.
+    // This will probably be the first refactor I tackle when coming back to
+    // this.
     this.events.on(GameEvent.AbilityClick, (ability) => {
       this.stateTransition("SELECT_ABILITY", { ability });
     });
@@ -159,9 +211,27 @@ export class GameScene extends Phaser.Scene {
       this.events.emit(GameEvent.Cancel);
     });
 
+    // ## State Transitions
+    // Each transition consists of the before and after state, and the function
+    // should return the GameState object.  I think this is probably missing
+    // some type annotations somewhere because TypeScript will happily compile
+    // it even if you return the wrong thing -- maybe I also need to add an
+    // invariant?
+    //
+    // The API of this is quite odd and I should probably just use one of the
+    // off-the-shelf state machine libraries.
+    //
+    // The state should normally flow like this:
+    // `FOCUS CREW -> SELECT ABILITY -> USE_ABILITY -> repeat for next crew -> FOCUS_ALIEN -> ALIEN_GROWTH -> REPEAT`
+    // SELECT_ABILITY can also be cancelled, going back to FOCUS_CREW. If all
+    // the crew have acted, it goes to the alien turn.
+    //
+    // In general, a state machine seems really nice for a turn-based game like
+    // this, I would do the same in future games.
     this.defineTransition("USE_ABILITY", "GAME_OVER", () => {
       return { key: "GAME_OVER" };
     });
+
     this.defineTransition("FOCUS_CREW", "SELECT_ABILITY", ({ ability }) => {
       if (ability.targetable) {
         return { key: "SELECT_ABILITY", ability };
@@ -176,46 +246,41 @@ export class GameScene extends Phaser.Scene {
       }
       return { key: "USE_ABILITY", target };
     });
+
     this.defineTransition("SELECT_ABILITY", "FOCUS_CREW", () => {
       return this.stateCache.FOCUS_CREW;
     });
+
     this.defineTransition("USE_ABILITY", "FOCUS_CREW", (index) => {
       const state = this.stateCache.FOCUS_CREW;
       if (state.key === "FOCUS_CREW") state.index = index;
       this.focusActor(this.crew[index]);
       return state;
     });
+
     this.defineTransition("USE_ABILITY", "FOCUS_ALIEN", () => {
       this.runAlienTurn(0);
       return { key: "FOCUS_ALIEN" };
     });
+
     this.defineTransition("FOCUS_ALIEN", "ALIEN_GROWTH", () => {
       this.runAlienGrowth();
       return { key: "ALIEN_GROWTH" };
     });
+
     this.defineTransition("ALIEN_GROWTH", "FOCUS_CREW", () => {
       this.focusActor(this.crew[0]);
       return { key: "FOCUS_CREW", index: 0 };
     });
   }
 
-  async runAlienGrowth() {
-    for (const alien of this.aliens) {
-      if (alien.justBorn) {
-        alien.justBorn = false;
-        continue;
-      }
-      const result = await alien.abilities.grow.use(this, alien);
-      if (result) {
-        this.events.emit(
-          GameEvent.Log,
-          alien.abilities.grow.message(alien, null)
-        );
-      }
-    }
-    return this.stateTransition("FOCUS_CREW");
-  }
-
+  // Run the alien turn. For each alien, call its `behavior` function to decide
+  // which `ability` it should use.
+  // I used async methods here so that I could just wait for things like the
+  // moving animation to finish, if they chose to move. If we wanted to get
+  // fancy, we could even push the pathfinding calculations in the
+  // behavior/ability to a web worker to avoid stuttering, but it's not
+  // necessary for this game.
   async runAlienTurn(index) {
     const alien = this.aliens[index];
     this.focusActor(alien);
@@ -237,6 +302,33 @@ export class GameScene extends Phaser.Scene {
     return this.runAlienTurn(index + 1);
   }
 
+  // Run the alien growth phase. Each alien will attempt to grow, apart from
+  // eggs that spawned during this turn. If there's no spot to lay an egg, then
+  // `result` will be false.
+  // The logic of how grow works is defined in [config](./config.ts). From a
+  // balance perspective, I think I might make growth be more of a bespoke
+  // action as determined by the behavior function, so that an alien could
+  // *either* move or grow. Right now the exponential growth is too tough to
+  // beat.
+  async runAlienGrowth() {
+    for (const alien of this.aliens) {
+      if (alien.justBorn) {
+        alien.justBorn = false;
+        continue;
+      }
+      const result = await alien.abilities.grow.use(this, alien);
+      if (result) {
+        this.events.emit(
+          GameEvent.Log,
+          alien.abilities.grow.message(alien, null)
+        );
+      }
+    }
+    return this.stateTransition("FOCUS_CREW");
+  }
+
+  // Use crew abilities. This works mostly the same as alien actions, and it
+  // uses async to allow for movement or bullet animations to finish.
   async useAbility(ability, target) {
     const result = await ability.use(this, target);
     if (ability.message) {
@@ -284,6 +376,10 @@ export class GameScene extends Phaser.Scene {
     this.events.emit(GameEvent.FocusActor);
   }
 
+  // When the mouse is clicked, get the tile they clicked on and do something.
+  // I wanted to make this more contextual, like clicking on a crew member to
+  // show more information about them, or on an alien, etc., but ran out of
+  // time. So right now it just captures the ability targets.
   onClick() {
     const { x, y } = this.input.activePointer;
     const { x: worldX, y: worldY } = this.cameras.main.getWorldPoint(x, y);
@@ -319,6 +415,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Highlight the tile where the mouse is. I wanted this to be more
+  // contextual, like drawing the path of movement based on where the mouse is,
+  // but didn't get to it!
   updateSelectedTile() {
     if (shouldUpdate(this.lastChecked, this.time.now, 50)) {
       const { x, y } = this.input.activePointer;
@@ -361,6 +460,7 @@ const config = {
   width: 800,
   height: 600,
   antialias: false,
+  parent: document.getElementById("game"),
   scene: [GameScene, UI],
   physics: {
     default: "arcade",

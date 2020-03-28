@@ -1,3 +1,9 @@
+// # ui.ts
+// UI scene. I used a separate scene as it seems to be the easiest way to keep
+// UI elements fixed on the screen as the camera moves.
+//
+// I think a lot of this could be cleaned up if I used parent transforms.
+
 import "phaser";
 
 import { GameEvent } from "./types";
@@ -5,6 +11,7 @@ import { GameScene } from "./game";
 
 const PADDING = 5;
 
+// helper function for creating text buttons
 const createTextButton = (scene, x, y, text, callback, callbackContext) => {
   const textNode = scene.add.text(x, y, text, {
     color: "#000",
@@ -28,17 +35,25 @@ const createTextButton = (scene, x, y, text, callback, callbackContext) => {
 
 class UI extends Phaser.Scene {
   uiCache: { [key: string]: Phaser.GameObjects.Group };
+  // the current set of buttons (per-actor)
   currentGroup: Phaser.GameObjects.Group;
+  // the last message displayed (mostly skill feedback)
   lastMessage: Phaser.GameObjects.Text;
+  // Win/Lose message that covers the whole screen
   gameOverMessage: Phaser.GameObjects.Text;
+  // Shown at the top to give some context (whose turn it is, etc)
   contextMessage: Phaser.GameObjects.Text;
 
   constructor() {
+    // `active` is important! otherwise it won't render this scene in parallel
+    // with the main scene.
     super({ key: "ui", active: true });
     this.uiCache = {};
     this.currentGroup = null;
   }
 
+  // We cache the button groups as they only need to be draw once per actor and
+  // then shown/hidden when the actor focus changes.
   getCachedUI(actor) {
     if (!this.uiCache[actor.name]) {
       this.uiCache[actor.name] = this.renderActorUI(actor);
@@ -55,7 +70,6 @@ class UI extends Phaser.Scene {
       let x = 32;
       if (idx > 0) {
         const previousTextNode = group[group.length - 2];
-        console.assert(previousTextNode instanceof Phaser.GameObjects.Text);
         x = previousTextNode.x + previousTextNode.width + 10;
       }
 
@@ -148,7 +162,6 @@ class UI extends Phaser.Scene {
       this.lastMessage.text = message;
       this.lastMessage.x = width - 32 - this.lastMessage.width;
       this.lastMessage.y = height - 32;
-      console.log(message);
     });
 
     game.events.on(GameEvent.EndStateTransition, ({ state }) => {

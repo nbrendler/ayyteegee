@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title><%= htmlWebpackPlugin.options.title %></title>
+<style>
+
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+#game {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+canvas {
+  margin: auto;
+}
+
+body > div {
+  padding: 1rem;
+  flex: 1 0 50%;
+}
+
+@media screen and (max-width: 990px) {
+  body {
+    flex-wrap: wrap;
+  }
+  #game {
+    flex-basis: 100%;
+  }
+}
+
+</style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div> <%= require('html-loader!markdown-loader!../README.md') %></div>
+  </body>
+</html>
