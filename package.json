@@ -10,11 +10,11 @@
     "start": "per-env",
     "start:development": "webpack-dev-server",
     "start:production": "serve dist --single",
-    "serve": "yarn run build && serve dist --single",
+    "serve": "npm run build && serve dist --single",
     "clean": "rimraf dist",
-    "prebuild": "yarn run clean -s",
+    "prebuild": "npm run clean -s",
     "assets": "mkdirp dist && ncp assets dist/assets",
-    "build": "yarn run assets && webpack -p",
+    "build": "npm run assets && webpack -p",
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
